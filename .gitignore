@@ -1,0 +1,20 @@
+# --- mkpm -------------------------------------------------------------------
+.mkpmrc.local
+mkpm
+.mkpkgs/
+.mkpm_plugins/
+
+# --- rust -------------------------------------------------------------------
+/target
+
+# --- secrets ----------------------------------------------------------------
+.env
+.env.local
+!.env.example
+
+# --- local input and output -------------------------------------------------
+# Videos and generated HLS trees are build artefacts, not source.
+transcoder/in/*
+!transcoder/in/.gitkeep
+transcoder/out/*
+!transcoder/out/.gitkeep

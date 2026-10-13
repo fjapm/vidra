@@ -1,0 +1,46 @@
+name: vidra-transcoder
+
+services:
+  transcoder:
+    build:
+      # The workspace root: Cargo needs the root manifest and lockfile to build
+      # any member, and the heavy whisper/ffmpeg stages live in the one
+      # Dockerfile shared with the runner.
+      context: ..
+      dockerfile: Dockerfile
+      target: transcoder
+    image: ${VIDRA_IMAGE:-vidra:latest}
+
+    labels:
+      # How the mkpm docker_compose package picks the service that `make
+      # shell`, `make exec` and `make image-build` act on by default.
+      main: "true"
+
+    # vidra transcodes one video and exits, so there is nothing to restart and
+    # nothing to keep alive. Driven with `docker compose run` (`make run`),
+    # not `up`.
+    restart: "no"
+
+    volumes:
+      # Source videos, read-only: vidra never writes next to its input.
+      - ./in:/in:ro
+      # The HLS output tree.
+      - ./out:/out
+      # Named volumes, so the Whisper model is downloaded once and scratch
+      # never lands on the container's writable layer.
+      - vidra-models:/models
+      - vidra-scratch:/scratch
+
+    environment:
+      # Passed through from the host shell only when actually set. The
+      # value-less form matters: `RUST_LOG=` would install an empty filter and
+      # silence every log line, and `VIDRA_LOG_PRETTY=` is a hard parse error
+      # because clap wants a boolean there.
+      - RUST_LOG
+      - VIDRA_LOG_PRETTY
+      - VIDRA_WHISPER_MODEL
+      - VIDRA_THUMBNAIL_INTERVAL
+
+volumes:
+  vidra-models:
+  vidra-scratch:

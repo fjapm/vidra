@@ -1,0 +1,54 @@
+[package]
+name = "vidra"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Transcodes a video file into an HLS ladder with thumbnails and captions"
+license = "MIT"
+publish = false
+
+[dependencies]
+# CLI parsing. The `env` feature lets every flag fall back to a VIDRA_*
+# variable, which is what makes `docker run -e ...` and an explicit argument
+# list two spellings of the same thing rather than two code paths.
+clap = { workspace = true }
+
+# rustls rather than native-tls: no OpenSSL to link against, which keeps the
+# runtime image slim and the build reproducible. Used only to fetch the
+# Whisper model.
+reqwest = { workspace = true }
+
+tokio = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# anyhow only: every error here is either logged or turned into a manifest
+# error string, so a typed error enum would buy nothing. The one exception is
+# `error::Permanent`, which exists to drive the exit code.
+anyhow = { workspace = true }
+
+# Whisper model checksum verification.
+sha2 = "0.10"
+hex = "0.4"
+
+# Timestamps for the manifest.
+time = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+
+# Scratch directories for tests only. dev-dependencies are visible to
+# #[cfg(test)] code inside src/, so this need not be a regular dependency.
+tempfile = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# The project is built with `cargo clippy -- -D warnings`, so these are the
+# lint groups that must stay clean.
+all = { level = "warn", priority = -1 }

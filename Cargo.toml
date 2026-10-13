@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = ["transcoder", "runner"]
+
+# Dependencies shared by both crates are pinned here so the two can never
+# disagree about a version — which matters most for serde and serde_json,
+# since `manifest.json` is the contract between them.
+[workspace.dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+clap = { version = "4", features = ["derive", "env"] }
+tempfile = "3"
+
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "charset",
+    "http2",
+] }
+
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "process",
+    "fs",
+    "time",
+] }
+
+[profile.release]
+# Both binaries are I/O- and subprocess-bound, so a slower build for a
+# smaller, slightly faster binary is a good trade.
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

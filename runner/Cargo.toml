@@ -1,0 +1,62 @@
+[package]
+name = "vidra-runner"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Claims transcode jobs from a queue, runs vidra, and stores the output"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "vidra-runner"
+path = "src/main.rs"
+
+[dependencies]
+# The transcoder, as a library, for exactly one thing: the `manifest.json`
+# schema. That file is the contract between the two binaries, and sharing the
+# type means it cannot drift. vidra itself is still invoked as a subprocess —
+# this is a shared schema, not a shared process.
+vidra = { path = "../transcoder" }
+
+# Object storage over the S3 API. Works against R2, AWS S3, MinIO, Backblaze
+# B2, Spaces and anything else S3-compatible; see storage.rs for the three
+# knobs that differ between them.
+#
+# aws-config is deliberately absent: its credential chain would probe IMDS and
+# ~/.aws, neither of which exists here. Credentials come from configuration and
+# the client is built by hand.
+aws-sdk-s3 = { version = "1", features = ["behavior-version-latest"] }
+aws-credential-types = "1"
+
+# Trait objects with async methods. Native `async fn` in traits cannot be made
+# into `dyn Trait` without boxing, and the whole point of JobSource is runtime
+# selection of a backend.
+async-trait = "0.1"
+
+clap = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+
+tokio = { workspace = true, features = ["signal", "sync", "io-util"] }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+time = { workspace = true }
+
+# Webhook signing.
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+tempfile = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

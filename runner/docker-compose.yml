@@ -1,0 +1,68 @@
+name: vidra-runner
+
+services:
+  runner:
+    build:
+      # The workspace root: this image contains both binaries, and the heavy
+      # whisper/ffmpeg stages are shared with the transcoder image.
+      context: ..
+      dockerfile: Dockerfile
+      target: runner
+    image: ${RUNNER_IMAGE:-vidra-runner:latest}
+
+    labels:
+      main: "true"
+
+    # Unlike the transcoder, this one is a daemon: it polls until told to stop.
+    restart: unless-stopped
+
+    # SIGTERM lets the runner finish the batch in flight instead of orphaning a
+    # job mid-transcode. Long enough for a real encode to complete.
+    stop_grace_period: 600s
+
+    volumes:
+      # Downloads and output staging. A volume, not the writable layer: a
+      # 1080p source can be several gigabytes.
+      - runner-scratch:/scratch
+      # The Whisper model, downloaded once and shared across every job.
+      - runner-models:/models
+
+    environment:
+      # Required — no defaults, because guessing any of these would be worse
+      # than failing to start.
+      - RUNNER_CF_ACCOUNT_ID
+      - RUNNER_QUEUE_ID
+      - RUNNER_QUEUE_API_TOKEN
+      - RUNNER_BUCKET
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      # Storage shape. Defaults suit R2; for AWS S3 leave the endpoint unset
+      # and set RUNNER_S3_PATH_STYLE=false with a real region.
+      - RUNNER_S3_ENDPOINT
+      - AWS_DEFAULT_REGION
+      - RUNNER_S3_PATH_STYLE
+      # Optional. Passed through only when set on the host, so a value-less
+      # key can never become an empty string the parser has to interpret.
+      - RUNNER_SOURCE_PREFIX
+      - RUNNER_OUTPUT_PREFIX
+      - RUNNER_CONCURRENCY
+      - RUNNER_QUEUE_BATCH_SIZE
+      - RUNNER_QUEUE_MAX_ATTEMPTS
+      - RUNNER_QUEUE_VISIBILITY_TIMEOUT_MS
+      - RUNNER_POLL_IDLE_SECONDS
+      - RUNNER_THUMBNAIL_INTERVAL
+      - RUNNER_NO_TRANSCRIBE
+      - RUNNER_WEBHOOK_URL
+      - RUNNER_WEBHOOK_SECRET
+      - RUNNER_LOG_PRETTY
+      - RUST_LOG
+
+    # Credentials belong in a file git never sees, not in this one. Create
+    # runner/.env.local and the whole stack picks it up.
+    env_file:
+      - path: .env.local
+        required: false
+
+volumes:
+  runner-scratch:
+  runner-models:
