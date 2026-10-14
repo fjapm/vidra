@@ -14,6 +14,21 @@
 #
 #   docker build --target transcoder -t vidra:latest .
 #   docker build --target runner     -t vidra-runner:latest .
+#
+# amd64 and arm64 are both supported. Nothing needs passing in: the two
+# architecture-dependent steps — which static FFmpeg to fetch, and whether the
+# x86 SIMD flags apply to whisper.cpp — read TARGETARCH when BuildKit sets it
+# and fall back to the build stage's own dpkg architecture otherwise, so a
+# plain native `docker build` is correct on either.
+#
+#   docker buildx build --platform linux/amd64,linux/arm64 --target runner \
+#     -t ghcr.io/fjapm/vidra-runner:<tag> --push .
+#
+# Cross-building arm64 on an amd64 host works only under QEMU, because several
+# stages execute what they just built (cargo, cmake, and the FFmpeg version
+# check). Emulating a Rust release build and a whisper.cpp compile is slow
+# enough that building natively on an arm64 machine is usually the better
+# trade.
 
 # ---------------------------------------------------------------------------
 # Rust builder
@@ -64,10 +79,19 @@ ARG WHISPER_VERSION=v1.7.4
 # every x86-64 CPU since Haswell (2013) has it — along with FMA and F16C, which
 # landed in the same generation, hence the single switch.
 #
-# For older hardware or arm64, pass --build-arg WHISPER_AVX2=OFF. GGML_NATIVE
-# stays OFF either way so a build never bakes in the *builder's* CPU features
-# and then dies with SIGILL somewhere else.
-ARG WHISPER_AVX2=ON
+# These flags are x86-only: passing them on arm64 fails the cmake configure, so
+# the default is decided per architecture rather than fixed. Set WHISPER_AVX2
+# explicitly to override — OFF for a pre-Haswell x86 host, for instance.
+#
+# GGML_NATIVE stays OFF on every architecture so a build never bakes in the
+# *builder's* CPU features and then dies with SIGILL somewhere else. On arm64
+# that means NEON only, no dotprod or i8mm: portable, somewhat slower.
+#
+# TARGETARCH is set by BuildKit. It is empty under the classic builder and on a
+# plain native build, so dpkg is the fallback — it reports the architecture of
+# this build stage, which for a native build is the one we want.
+ARG TARGETARCH=
+ARG WHISPER_AVX2=
 
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -78,13 +102,24 @@ WORKDIR /src
 RUN git clone --depth 1 --branch "${WHISPER_VERSION}" \
       https://github.com/ggerganov/whisper.cpp.git .
 
-RUN cmake -B build \
+RUN set -eu; \
+    arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+    avx2="${WHISPER_AVX2:-}"; \
+    if [ -z "$avx2" ]; then \
+      case "$arch" in \
+        amd64) avx2=ON ;; \
+        arm64) avx2=OFF ;; \
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+      esac; \
+    fi; \
+    echo "whisper.cpp: arch=$arch x86 SIMD=$avx2"; \
+    cmake -B build \
       -DCMAKE_BUILD_TYPE=Release \
       -DGGML_NATIVE=OFF \
-      -DGGML_AVX="${WHISPER_AVX2}" \
-      -DGGML_AVX2="${WHISPER_AVX2}" \
-      -DGGML_FMA="${WHISPER_AVX2}" \
-      -DGGML_F16C="${WHISPER_AVX2}" \
+      -DGGML_AVX="$avx2" \
+      -DGGML_AVX2="$avx2" \
+      -DGGML_FMA="$avx2" \
+      -DGGML_F16C="$avx2" \
       -DWHISPER_BUILD_TESTS=OFF \
       -DWHISPER_BUILD_EXAMPLES=ON \
  && cmake --build build --config Release -j "$(nproc)" \
@@ -106,7 +141,8 @@ RUN apt-get update \
 
 WORKDIR /ffmpeg
 
-# johnvansickle's builds are the long-standing static x86-64 distribution.
+# johnvansickle publishes static builds for both amd64 and arm64, under names
+# that differ only by that token — so the architecture picks the tarball.
 #
 # No checksum is pinned here, and that is a documented gap rather than an
 # oversight: this URL always serves the *current* release, so any hash
@@ -116,10 +152,20 @@ WORKDIR /ffmpeg
 # and add a `sha256sum -c` step here. See README.md ("Pinning FFmpeg").
 #
 # What is verified is that the extracted binaries run and report a version, so
-# a truncated download or an HTML error page fails the build rather than
-# producing an image whose FFmpeg is quietly broken.
-RUN curl -fsSL --retry 5 --retry-delay 3 \
-      "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" \
+# a truncated download, an HTML error page, or a tarball for the wrong
+# architecture fails the build rather than producing an image whose FFmpeg is
+# quietly broken. On a cross-architecture build that check needs emulation; a
+# native build on the target architecture needs none.
+ARG TARGETARCH=
+RUN set -eu; \
+    arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+    case "$arch" in \
+      amd64 | arm64) ;; \
+      *) echo "no static FFmpeg published for: $arch" >&2; exit 1 ;; \
+    esac; \
+    echo "ffmpeg: fetching the ${arch} static build"; \
+    curl -fsSL --retry 5 --retry-delay 3 \
+      "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-${arch}-static.tar.xz" \
       -o ffmpeg.tar.xz \
  && tar -xJf ffmpeg.tar.xz --strip-components=1 \
  && mkdir -p /out/bin \
