@@ -85,6 +85,7 @@ async fn run(args: Args) -> Result<()> {
         layout,
         vidra_bin: args.vidra_bin.clone(),
         scratch_dir: args.scratch_dir.clone(),
+        upload_concurrency: args.upload_concurrency,
         thumbnail_interval: args.thumbnail_interval,
         whisper_model_dir: args.whisper_model_dir.clone(),
         no_transcribe: args.no_transcribe,

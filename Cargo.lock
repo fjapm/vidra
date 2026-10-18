@@ -2668,6 +2668,7 @@ dependencies = [
  "aws-credential-types",
  "aws-sdk-s3",
  "clap",
+ "futures-util",
  "hex",
  "hmac 0.12.1",
  "reqwest",

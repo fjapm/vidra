@@ -131,3 +131,10 @@ and the runner stages both the download and the output there.
 `RUNNER_CONCURRENCY` bounds jobs in flight, each running its own vidra process
 with its own scratch directory. Each one wants a CPU core and its own share of
 the scratch volume, so raise it with both in mind.
+
+`RUNNER_UPLOAD_CONCURRENCY` (default 16) bounds the PUTs in flight while one
+job's output is stored. A ladder is thousands of small objects and each PUT is
+a round trip, so this is latency-bound rather than CPU- or bandwidth-bound:
+tune it to the distance to the bucket, not to the size of the box. It
+multiplies with `RUNNER_CONCURRENCY` — raising both at once is what actually
+saturates a connection.

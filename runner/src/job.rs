@@ -16,6 +16,7 @@
 //! every other object is durable.
 
 use anyhow::{Context, Result};
+use futures_util::stream::{self, StreamExt};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -54,6 +55,8 @@ pub struct Runner {
     pub layout: KeyLayout,
     pub vidra_bin: PathBuf,
     pub scratch_dir: PathBuf,
+    /// Objects uploaded at once when storing a job's output.
+    pub upload_concurrency: usize,
     /// Passed through to vidra; `None` leaves vidra's own default.
     pub thumbnail_interval: Option<u32>,
     pub whisper_model_dir: Option<PathBuf>,
@@ -293,15 +296,27 @@ impl Runner {
     }
 
     /// Upload every file under `root` except the manifest.
+    ///
+    /// The PUTs run concurrently. A ladder is thousands of small objects and
+    /// each PUT is a round trip, so uploading them one at a time spends nearly
+    /// all of its wall clock waiting on latency rather than moving bytes.
+    ///
+    /// `buffer_unordered` rather than spawning: these futures only borrow
+    /// `self`, so keeping them on this task avoids making `Storage` shareable
+    /// to no other end.
+    ///
+    /// The first error ends the upload and drops whatever is still in flight.
+    /// That leaves a partial tree, which is harmless — `manifest.json` is
+    /// written separately and only after this returns, so nothing will read
+    /// the prefix, and the next attempt clears it before writing.
     async fn upload_tree(&self, root: &Path, prefix: &str) -> Result<usize> {
         let files = collect_files(root).await?;
-        let mut count = 0;
+        let mut pending = Vec::with_capacity(files.len());
 
         for path in files {
             let relative = path
                 .strip_prefix(root)
                 .context("a collected path escaped the output root")?;
-            let key = format!("{prefix}{}", to_key(relative));
 
             // Deliberately skipped; uploaded by upload_manifest once
             // everything else is durable.
@@ -309,17 +324,28 @@ impl Runner {
                 continue;
             }
 
-            self.storage
-                .upload_file(
-                    &path,
-                    &key,
-                    content_type_for(&path),
-                    cache_control_for(&path),
-                )
-                .await
-                .with_context(|| format!("uploading {key}"))?;
+            let key = format!("{prefix}{}", to_key(relative));
+            pending.push((path, key));
+        }
 
-            count += 1;
+        let count = pending.len();
+
+        let mut uploads = stream::iter(pending)
+            .map(|(path, key)| async move {
+                self.storage
+                    .upload_file(
+                        &path,
+                        &key,
+                        content_type_for(&path),
+                        cache_control_for(&path),
+                    )
+                    .await
+                    .with_context(|| format!("uploading {key}"))
+            })
+            .buffer_unordered(self.upload_concurrency);
+
+        while let Some(result) = uploads.next().await {
+            result?;
         }
 
         Ok(count)

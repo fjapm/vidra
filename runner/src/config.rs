@@ -90,6 +90,14 @@ pub struct Args {
     #[arg(long, env = "RUNNER_CONCURRENCY", default_value_t = 1)]
     pub concurrency: usize,
 
+    /// Objects uploaded at once when storing a job's output.
+    ///
+    /// An HLS ladder is thousands of small objects, and each PUT is a round
+    /// trip, so this is latency-bound: the useful value tracks the distance to
+    /// the bucket rather than the size of the box.
+    #[arg(long, env = "RUNNER_UPLOAD_CONCURRENCY", default_value_t = 16)]
+    pub upload_concurrency: usize,
+
     /// The vidra executable.
     #[arg(long, env = "RUNNER_VIDRA_BIN", default_value = "vidra")]
     pub vidra_bin: PathBuf,
@@ -138,6 +146,9 @@ impl Args {
     pub fn validate(&self) -> Result<()> {
         if self.concurrency == 0 {
             bail!("--concurrency must be at least 1");
+        }
+        if self.upload_concurrency == 0 {
+            bail!("--upload-concurrency must be at least 1");
         }
         if self.poll_idle_seconds == 0 {
             bail!("--poll-idle-seconds must be at least 1");
@@ -218,6 +229,7 @@ mod tests {
             source_prefix: "source/".into(),
             output_prefix: "media/".into(),
             concurrency: 1,
+            upload_concurrency: 16,
             vidra_bin: PathBuf::from("vidra"),
             scratch_dir: PathBuf::from("/scratch"),
             thumbnail_interval: None,
@@ -239,6 +251,13 @@ mod tests {
     fn concurrency_must_be_at_least_one() {
         let mut args = args();
         args.concurrency = 0;
+        assert!(args.validate().is_err());
+    }
+
+    #[test]
+    fn upload_concurrency_must_be_at_least_one() {
+        let mut args = args();
+        args.upload_concurrency = 0;
         assert!(args.validate().is_err());
     }
 

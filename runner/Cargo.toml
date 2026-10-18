@@ -33,6 +33,15 @@ aws-credential-types = "1"
 # selection of a backend.
 async-trait = "0.1"
 
+# `buffer_unordered`, for running the output upload's PUTs concurrently. Already
+# in the lock file as an aws-sdk-s3 dependency, so naming it here costs nothing.
+#
+# `alloc` is named explicitly because that is where FuturesUnordered — what
+# buffer_unordered is built on — lives. Leaving it to feature unification with
+# aws-sdk-s3's copy would compile today and break confusingly the day that
+# dependency changes.
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+
 clap = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 
